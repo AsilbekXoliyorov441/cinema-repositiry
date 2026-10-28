@@ -1,0 +1,106 @@
+# CineWave stack.
+#   Local development (infra only):  docker compose up -d postgres redis
+#   Full stack (production-like):    docker compose --profile app up -d --build
+name: cinewave
+
+x-app-env: &app-env
+  NODE_ENV: production
+  PORT: 4000
+  DATABASE_URL: postgresql://${POSTGRES_USER:-cinewave}:${POSTGRES_PASSWORD:-cinewave}@postgres:5432/${POSTGRES_DB:-cinewave}?schema=public
+  REDIS_URL: redis://redis:6379/0
+  LOCAL_STORAGE_PATH: /app/storage/uploads
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cinewave}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cinewave}
+      POSTGRES_DB: ${POSTGRES_DB:-cinewave}
+    # Bound to localhost only: the database must never be reachable from the internet.
+    ports:
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    ports:
+      - '127.0.0.1:${REDIS_HOST_PORT:-6380}:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    profiles: ['app']
+    build: .
+    image: cinewave-api:latest
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+    env_file: .env.production
+    healthcheck:
+      disable: true
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    profiles: ['app']
+    image: cinewave-api:latest
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      <<: *app-env
+      RUN_WORKERS_IN_API: 'false'
+    ports:
+      # Published on localhost; nginx (deploy/nginx/cinewave-api.conf) terminates TLS in front of it.
+      - '127.0.0.1:${API_HOST_PORT:-4000}:4000'
+    volumes:
+      - uploads:/app/storage/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    profiles: ['app']
+    image: cinewave-api:latest
+    restart: unless-stopped
+    command: ['node', 'dist/worker.js']
+    env_file: .env.production
+    healthcheck:
+      disable: true # no HTTP server in the worker
+    environment: *app-env
+    volumes:
+      - uploads:/app/storage/uploads
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:

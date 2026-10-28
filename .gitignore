@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.local
+.env.production
+*.log
+storage/*
+!storage/.gitkeep
+!.env.test
+.DS_Store
