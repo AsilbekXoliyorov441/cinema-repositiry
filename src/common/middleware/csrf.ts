@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { allowedOrigins } from '../../config/env.js';
+import { isAllowedOrigin } from '../../config/env.js';
 import { AppError } from '../errors/app-error.js';
 
 /**
@@ -16,7 +16,7 @@ export function cookieCsrfGuard(req: Request, _res: Response, next: NextFunction
     throw AppError.forbidden('Missing X-Requested-With header');
   }
   const origin = req.get('origin') ?? refererOrigin(req.get('referer'));
-  if (origin && !allowedOrigins.includes(origin)) {
+  if (origin && !isAllowedOrigin(origin)) {
     throw AppError.forbidden('Origin not allowed');
   }
   next();

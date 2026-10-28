@@ -151,9 +151,7 @@ const envSchema = z
         issue('COOKIE_SAME_SITE', 'SameSite=None requires Secure cookies');
       }
       if (env.EMAIL_PROVIDER !== 'smtp') issue('EMAIL_PROVIDER', 'Production requires EMAIL_PROVIDER=smtp');
-      if (env.SWAGGER_ENABLED && !(env.SWAGGER_USER && env.SWAGGER_PASSWORD)) {
-        issue('SWAGGER_ENABLED', 'Swagger in production requires SWAGGER_USER and SWAGGER_PASSWORD');
-      }
+      // Swagger without SWAGGER_USER/SWAGGER_PASSWORD is public on purpose (practice API for students).
       if (env.BOOTSTRAP_ADMIN_PASSWORD) {
         issue('BOOTSTRAP_ADMIN_PASSWORD', 'Do not keep the bootstrap password in the production environment');
       }
@@ -178,7 +176,17 @@ export const env = loadEnv();
 export const isProduction = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';
 
+/** CORS_ORIGINS=* lets any website call the API (public practice deployments for students). */
+export const allowAnyOrigin = env.CORS_ORIGINS.includes('*');
+
 /** All origins allowed to call the API with credentials. */
 export const allowedOrigins = Array.from(
-  new Set([env.FRONTEND_URL, env.ADMIN_URL, ...env.CORS_ORIGINS].map((o) => new URL(o).origin)),
+  new Set(
+    [env.FRONTEND_URL, env.ADMIN_URL, ...env.CORS_ORIGINS.filter((o) => o !== '*')].map((o) => new URL(o).origin),
+  ),
 );
+
+/** Used by CORS and the cookie CSRF guard so both always agree. */
+export function isAllowedOrigin(origin: string): boolean {
+  return allowAnyOrigin || allowedOrigins.includes(origin);
+}

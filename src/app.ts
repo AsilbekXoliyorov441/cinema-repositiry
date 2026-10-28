@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { pinoHttp } from 'pino-http';
-import { allowedOrigins, env } from './config/env.js';
+import { env, isAllowedOrigin } from './config/env.js';
 import { logger } from './config/logger.js';
 import { requestId } from './common/middleware/request-id.js';
 import { rateLimiters } from './common/middleware/rate-limit.js';
@@ -52,7 +52,7 @@ export function createApp(): Express {
     cors({
       origin: (origin, cb) => {
         // Non-browser clients (no Origin) are allowed; browsers must be on the allowlist.
-        if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+        if (!origin || isAllowedOrigin(origin)) return cb(null, true);
         cb(null, false);
       },
       credentials: true,

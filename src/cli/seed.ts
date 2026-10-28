@@ -12,6 +12,8 @@ import { hashPassword } from '../modules/auth/password.service.js';
  * Idempotent seed: safe to run repeatedly (upserts by natural keys).
  *  - always: permissions, system roles, role→permission mapping, default plans
  *  - development/test only: demo genres, demo movies and demo users
+ *    (also in production when SEED_DEMO_DATA=true: public practice API with shared demo logins).
+ *    Re-running resets the demo passwords and roles in case someone changed them.
  */
 export async function seed(prisma: PrismaClient, nodeEnv: string): Promise<void> {
   // Permissions
@@ -48,8 +50,8 @@ export async function seed(prisma: PrismaClient, nodeEnv: string): Promise<void>
   }
   console.log(`✔ ${plans.length} plans`);
 
-  if (nodeEnv === 'production') {
-    console.log('ℹ production: demo data and demo users skipped');
+  if (nodeEnv === 'production' && process.env.SEED_DEMO_DATA !== 'true') {
+    console.log('ℹ production: demo data and demo users skipped (set SEED_DEMO_DATA=true to add them)');
     return;
   }
 
@@ -88,7 +90,7 @@ export async function seed(prisma: PrismaClient, nodeEnv: string): Promise<void>
   }
   console.log(`✔ ${genres.length} genres, ${movies.length} demo movies`);
 
-  // Demo accounts for local development only. Password is documented in README and never valid in production.
+  // Demo accounts. Password is documented in README. Protected so other admins cannot ban or delete them.
   const demoPassword = await hashPassword('DevPassword123');
   const demoUsers = [
     { email: 'admin@cinewave.local', displayName: 'Demo Admin', role: SYSTEM_ROLES.ADMIN },
@@ -100,8 +102,8 @@ export async function seed(prisma: PrismaClient, nodeEnv: string): Promise<void>
     const role = await prisma.role.findUniqueOrThrow({ where: { name: u.role } });
     const user = await prisma.user.upsert({
       where: { email: u.email },
-      create: { email: u.email, displayName: u.displayName, passwordHash: demoPassword, emailVerifiedAt: new Date() },
-      update: {},
+      create: { email: u.email, displayName: u.displayName, passwordHash: demoPassword, emailVerifiedAt: new Date(), isProtected: true },
+      update: { passwordHash: demoPassword, status: 'ACTIVE', isProtected: true },
     });
     for (const roleId of new Set([userRole.id, role.id])) {
       await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId } }, create: { userId: user.id, roleId }, update: {} });
